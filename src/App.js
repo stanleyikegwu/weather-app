@@ -7,15 +7,17 @@ function App() {
   const [forecast, setForecast] = useState([]);
   const [error, setError] = useState("");
   const [darkMode, setDarkMode] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [lastCity, setLastCity] = useState("");
 
   const API_KEY = "baafa7b40bbfb9de729f56357e802f2d";
 
   useEffect(() => {
-    document.body.className = darkMode ? "dark" : "light"; // 🔹 Apply theme to body
+    document.body.className = darkMode ? "dark" : "light";
   }, [darkMode]);
 
-  // Particle effect
   useEffect(() => {
+    // Particle animation (unchanged)
     const canvas = document.getElementById("particles");
     const ctx = canvas.getContext("2d");
 
@@ -70,25 +72,38 @@ function App() {
   }, []);
 
   const getWeather = async () => {
+    const trimmedCity = city.trim();
+    if (!trimmedCity) return;
+    if (trimmedCity.toLowerCase() === lastCity.toLowerCase()) return; // Avoid re-fetch if same city
+
     try {
       setError("");
-      const res = await fetch(
-        `https://api.openweathermap.org/data/2.5/weather?q=${city}&units=metric&appid=${API_KEY}`
-      );
-      if (!res.ok) throw new Error("City not found");
-      const data = await res.json();
-      setWeather(data);
-
-      const forecastRes = await fetch(
-        `https://api.openweathermap.org/data/2.5/forecast?q=${city}&units=metric&appid=${API_KEY}`
-      );
-      const forecastData = await forecastRes.json();
-      const dailyData = forecastData.list.filter((_, idx) => idx % 8 === 0);
-      setForecast(dailyData);
-    } catch (err) {
-      setError(err.message);
+      setLoading(true);
       setWeather(null);
       setForecast([]);
+
+      // Fetch both at once
+      const [currentRes, forecastRes] = await Promise.all([
+        fetch(
+          `https://api.openweathermap.org/data/2.5/weather?q=${trimmedCity}&units=metric&appid=${API_KEY}`
+        ),
+        fetch(
+          `https://api.openweathermap.org/data/2.5/forecast?q=${trimmedCity}&units=metric&appid=${API_KEY}`
+        )
+      ]);
+
+      if (!currentRes.ok) throw new Error("City not found");
+      const currentData = await currentRes.json();
+      const forecastData = await forecastRes.json();
+
+      setWeather(currentData);
+      const dailyData = forecastData.list.filter((_, idx) => idx % 8 === 0);
+      setForecast(dailyData);
+      setLastCity(trimmedCity);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -96,7 +111,10 @@ function App() {
     <>
       <canvas id="particles"></canvas>
       <div className="app">
-        <button className="dark-mode-toggle" onClick={() => setDarkMode(!darkMode)}>
+        <button
+          className="dark-mode-toggle"
+          onClick={() => setDarkMode(!darkMode)}
+        >
           {darkMode ? "☀️" : "🌙"}
         </button>
         <h1 className="title">Weather App</h1>
@@ -106,10 +124,12 @@ function App() {
             placeholder="Enter city"
             value={city}
             onChange={(e) => setCity(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && getWeather()}
           />
           <button onClick={getWeather}>Search</button>
         </div>
 
+        {loading && <p className="loading">Loading weather...</p>}
         {error && <p className="error">{error}</p>}
 
         {weather && (
@@ -124,7 +144,11 @@ function App() {
           <div className="forecast-container">
             {forecast.map((day, i) => (
               <div key={i} className="forecast-card">
-                <p>{new Date(day.dt_txt).toLocaleDateString("en-US", { weekday: "short" })}</p>
+                <p>
+                  {new Date(day.dt_txt).toLocaleDateString("en-US", {
+                    weekday: "short"
+                  })}
+                </p>
                 <img
                   src={`https://openweathermap.org/img/wn/${day.weather[0].icon}@2x.png`}
                   alt={day.weather[0].description}
